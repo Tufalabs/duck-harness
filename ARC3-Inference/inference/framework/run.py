@@ -352,6 +352,7 @@ def _make_deployment_target(
         "extra_sbatch_flags": extra_sbatch_flags,
         "extra_source_repos": [_project_root, *source_repos],
         "main_project": _project_root.name,
+        "launcher_venv": _project_root / ".venv",
     }
     if (
         resolved_max_runtime_s is not None
