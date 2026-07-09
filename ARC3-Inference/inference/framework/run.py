@@ -1317,7 +1317,7 @@ def main() -> None:
         help="Only write the Kaggle source/kernel bundles locally; do not upload.",
     )
     parser.add_argument("--kaggle-dataset-version-message", default="")
-    parser.add_argument("--slurm-gpu", choices=["B200", "B300", "RTX"], default="B200")
+    parser.add_argument("--slurm-gpu", choices=["B200", "B300", "RTX", "CPU"], default="B200")
     parser.add_argument("--slurm-gpu-count", type=int, default=1)
     parser.add_argument("--slurm-time", default="06:00:00")
     parser.add_argument("--slurm-image", default="")
@@ -1356,8 +1356,12 @@ def main() -> None:
     if args.competition_clone_runs < 0:
         log.error("--competition-clone-runs must be non-negative.")
         sys.exit(1)
-    if args.slurm_gpu_count <= 0:
-        log.error("--slurm-gpu-count must be positive.")
+    if args.slurm_gpu == "CPU":
+        if args.slurm_gpu_count != 0:
+            log.error("--slurm-gpu-count must be 0 when --slurm-gpu=CPU.")
+            sys.exit(1)
+    elif args.slurm_gpu_count <= 0:
+        log.error("--slurm-gpu-count must be positive for GPU Slurm jobs.")
         sys.exit(1)
     if not args.list_games and not args.model:
         log.error("--model is required unless --list-games is set.")

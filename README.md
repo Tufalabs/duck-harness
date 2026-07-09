@@ -26,7 +26,7 @@ make view          # opens the bundled ../example-run at http://127.0.0.1:8011
 
 `make view` defaults to the `example-run/` shipped at the repo root. Point it at another run with `make view VIEW_RUN_DIR=/path/to/run`.
 
-> `make install` does the same base sync **plus** the `server` extra (vLLM + Torch, multi-GB, GPU-only) — needed to actually run the harness, not to view.
+> `make install` installs the base harness/viewer dependencies. `make server` starts vLLM through the local `ARC3-Inference/container/` Apptainer setup by default; use `SERVER_RUNTIME=venv make server` only inside a newer Linux container where the vLLM wheel is compatible.
 
 ## Run it yourself
 

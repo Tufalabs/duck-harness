@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -82,6 +83,7 @@ class InlineTarget(taaf.deploy.DeploymentTarget):
     """
 
     max_runtime_s: float = 3600.0
+    snapshot_sources: bool = True
 
     async def deploy(self, benchmark: taaf.benchmark.Benchmark) -> InlineHandle:
         if benchmark.job_dir is None:
@@ -90,7 +92,14 @@ class InlineTarget(taaf.deploy.DeploymentTarget):
         taaf.deploy.check_job_dir_unused(job_dir)
         job_dir.mkdir(parents=True, exist_ok=True)
 
-        taaf.deploy.snapshot_editable_sources(job_dir / "src")
+        snapshot_sources = self.snapshot_sources and os.environ.get("TAAF_INLINE_SNAPSHOT_SOURCES", "true").lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
+        if snapshot_sources:
+            taaf.deploy.snapshot_editable_sources(job_dir / "src")
         # Persist launcher-side git overview. Worker venvs install from
         # snapshots that exclude .git, so this file is the only durable
         # record of the real per-repo state at run start.

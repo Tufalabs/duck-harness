@@ -21,10 +21,10 @@ You need Python 3.12 and `uv`.
 make install
 ```
 
-Run with the default local vLLM config:
+Run with the default local vLLM config. `make serve` submits the model-serving allocation through `coe-hpc3`; once it is ready, run the harness against it.
 
 ```bash
-make server
+make serve
 make interactive
 ```
 
@@ -65,12 +65,12 @@ The duck can use:
 
 - `current_frame.ascii` for a compact symbolic grid
 - `current_frame.segmentation` for connected components, object hashes,
-  boundaries, containment, and adjacency
+boundaries, containment, and adjacency
 - `history`, `previous_frame`, `transitions`, and `last_transition` for
-  before/after reasoning
+before/after reasoning
 - `valid_actions` for the current action set
 - `last_action_result` for fields such as `board_changed`, `level_completed`,
-  `game_over`, `run_complete`, and `reward`
+`game_over`, `run_complete`, and `reward`
 
 The raw numeric grid is intentionally hidden from the Python tool. The preferred
 view is `current_frame.segmentation`; `current_frame.ascii` is there for small
@@ -112,12 +112,12 @@ Useful sections in `configs/inference.json`:
 - `environment.*`: games, tags, passes, concurrency, and runtime limits.
 - `deployment.*`: inline vs Slurm and source repos bundled into Slurm jobs.
 - `deployment.slurm.*`: GPU, walltime, partition, local-server startup, and
-  extra `sbatch` flags.
+extra `sbatch` flags.
 - Kaggle runs are configured by CLI/Make overrides because the notebook slug
-  and source dataset are usually per run.
+and source dataset are usually per run.
 - `server.*`: vLLM model-serving settings.
 - `analyzer.*`: duck sampling/tool settings. This key is still named
-  `analyzer` for compatibility with existing code and configs.
+`analyzer` for compatibility with existing code and configs.
 - `chat.*`: direct chat probing with `make chat`.
 - `viewer.port`: default viewer port.
 - `multimodal.*`: image context for the current grid.
@@ -190,12 +190,12 @@ Common overrides:
 - `EXCLUDE_GAME_TAGS`: exclude tags.
 - `N_PASSES`: TAAF passes per selected game.
 - `CONCURRENT_JOBS`: TAAF concurrency. With Slurm local servers this is per
-  GPU/server.
+GPU/server.
 - `MAX_ACTIONS`: optional per-game action cap.
 - `MAX_RUNTIME_MINUTES`: per-game wall-clock cap.
 - `MAX_EXPERIMENT_RUNTIME_MINUTES` or `MAX_EXPERIMENT_RUNTIME_HOURS`: whole-run
-  wall-clock budget. If the per-game cap is unset, the runner derives it from
-  the number of games, passes, and effective concurrency.
+wall-clock budget. If the per-game cap is unset, the runner derives it from
+the number of games, passes, and effective concurrency.
 - `EXPERIMENTS_DIR`: base directory for timestamped runs.
 - `EXPERIMENT_DIR`: exact output directory for one run.
 
@@ -207,13 +207,45 @@ uv run --no-sync inference-taaf-run --include-tags official --list-games
 
 ## Local vLLM
 
-Start the server:
+`make serve` is the normal command from the login node. `make server` is the
+lower-level target that starts vLLM only after a Slurm GPU allocation already
+exists; with the default Apptainer runtime it refuses to run outside Slurm.
+
+One-time setup:
+
+```bash
+# Run these on the login node, where internet works.
+bash container/scripts/01_pull_image.sh
+bash container/scripts/03_download_model.sh
+
+# Build the Apptainer image on a node with Apptainer.
+bash container/scripts/02_build_sif.sh
+```
+
+That is the normal flow on this cluster: pull the Docker image and model weights
+on the login node, then build the Apptainer image on a node that has Apptainer.
+If your current shell is on the login node and Apptainer only exists on
+`coe-hpc3`, run the build step through SSH:
+
+```bash
+ssh coe-hpc3 'cd ~/arc-agi-3/duck-harness/ARC3-Inference && bash container/scripts/02_build_sif.sh'
+```
+
+Submit a long-lived model-serving Slurm job through `coe-hpc3`:
+
+```bash
+make serve
+```
+
+`make serve` SSHes to `coe-hpc3` when needed, submits the allocation with `sbatch --wrap`, then runs `make serve-hold` inside the allocation. `serve-hold` calls the normal `make server` target and keeps the allocation alive while the server process is running. Slurm stdout/stderr goes to `container/logs/serve-<jobid>.out`; vLLM logs go to `.cache/arc3_runtime/arc3-inference-server.log`.
+
+If you are already inside a suitable Slurm GPU allocation, start the server directly:
 
 ```bash
 make server
 ```
 
-Check or stop it:
+Check or stop a server owned by the current state directory:
 
 ```bash
 make check-server
@@ -222,6 +254,16 @@ make stop-server
 
 The default local base URL is `http://127.0.0.1:1234/v1`. `make server`
 generates a local server API key unless `SERVER_REQUIRE_API_KEY=false`.
+By default it uses:
+
+- `SERVER_APPTAINER_SIF=.cache/vllm-container/vllm-openai.sif`
+- `SERVER_APPTAINER_HF_HOME=.cache/vllm-container/hf`
+- `SERVER_APPTAINER_ATTENTION_BACKEND=FLASHINFER`
+
+Override those variables if your image or model cache lives elsewhere. If you
+are already inside a newer Linux container where the pinned vLLM wheel is
+compatible, use `SERVER_RUNTIME=venv make server`; that path installs the
+`server` extra via `make install-server`.
 
 On cluster machines, the Makefile moves Hugging Face, Torch, Triton, and related
 caches under `/shared/<user>` when that directory exists.
@@ -280,7 +322,7 @@ Each run writes a timestamped directory under `experiments.root_dir`, or under
 Important files include:
 
 - `run_config.json`: resolved games, passes, concurrency, runtime caps, model,
-  Slurm settings, and hardware metadata.
+Slurm settings, and hardware metadata.
 - `benchmark.json`: saved TAAF benchmark and per-game `GameRun` state.
 - `diagnostics.html`: TAAF diagnostics.
 - `artifacts/*_viewer_data.json`: compact viewer payloads.
@@ -391,9 +433,11 @@ transitions linked back to message indices.
 
 ## Useful Commands
 
-- `make install`: create `.venv` and install all locked dependencies.
+- `make install`: create `.venv` and install base locked dependencies.
+- `make install-server`: add the vLLM server extra for `SERVER_RUNTIME=venv`.
 - `make prepare-ci`: run Ruff and the test suite.
-- `make server`: start local vLLM.
+- `make serve`: submit a standalone model-serving Slurm job through `coe-hpc3`.
+- `make server`: start local vLLM via Apptainer inside an existing Slurm GPU allocation.
 - `make interactive`: run through TAAF inline deployment.
 - `make sbatch`: submit through TAAF Slurm deployment.
 - `make chat PROMPT="..."`: send a direct chat probe to the configured model.
@@ -409,7 +453,7 @@ transitions linked back to message indices.
 
 - `inference/framework/run.py`: CLI entry point and TAAF deployment setup.
 - `inference/framework/solver.py`: TAAF solver adapter, action execution,
-  viewer events, transcripts, and local-server orchestration.
+viewer events, transcripts, and local-server orchestration.
 - `inference/agent/tool_agent.py`: OpenAI-compatible tool-calling duck.
 - `inference/agent/python_tool_sandbox.py`: isolated Python tool runtime.
 - `inference/utils/segmentation.py`: connected-component board segmentation.
@@ -418,4 +462,5 @@ transitions linked back to message indices.
 - `inference/tools/traces.py`: trace export.
 - `viewer/`: local browser UI for saved runs.
 - `tests/`: unit coverage for config, duck runtime, TAAF runner, viewer,
-  scoring, significance, and traces.
+scoring, significance, and traces.
+

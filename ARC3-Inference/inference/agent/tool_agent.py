@@ -1650,6 +1650,30 @@ class ToolAgent:
             trimmed.pop(0)
         return trimmed
 
+    @staticmethod
+    def _strip_images_from_message(message: dict[str, Any]) -> dict[str, Any]:
+        """Replace any ``image_url`` parts with a text placeholder.
+
+        Only the current turn's grid image is worth sending: older board
+        states are already carried as ASCII in the ``history`` object, and
+        keeping every turn's image would exceed the server's
+        ``--limit-mm-per-prompt`` image cap after a handful of actions.
+        """
+        content = message.get("content")
+        if not isinstance(content, list):
+            return message
+        if not any(isinstance(part, dict) and part.get("type") == "image_url" for part in content):
+            return message
+        new_content: list[Any] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                new_content.append(
+                    {"type": "text", "text": "[grid image from an earlier turn omitted; see the ASCII board in `history`]"}
+                )
+            else:
+                new_content.append(part)
+        return {**message, "content": new_content}
+
     def _persistent_history_messages(self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         trimmed = self._trim_messages_for_context(messages, tools=tools)
         if not trimmed:
@@ -1667,7 +1691,11 @@ class ToolAgent:
             previous_message = trimmed_history[len(trimmed_history) - len(history) - 1]
             if str(previous_message.get("role", "")).strip() == "user":
                 history = [previous_message, *history]
-        return self._drop_until_first_user_message(history)
+        history = self._drop_until_first_user_message(history)
+        # Persisted turns keep only ASCII; the fresh user message built each
+        # ``analyze`` call carries the sole grid image, so a request never
+        # exceeds the server's per-prompt image cap regardless of run length.
+        return [self._strip_images_from_message(message) for message in history]
 
     def _trim_messages_for_context(
         self,
