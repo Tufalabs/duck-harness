@@ -531,7 +531,7 @@ def _render_install_block(target: TufaSlurmTarget, job_dir: Path) -> list[str]:
         "(",
         "    flock 9",
         f"    cd {shlex.quote(str(job_dir / 'src' / target.main_project))}",
-        "    uv sync",
+        "    uv sync --locked",
         '    if [ -n "${UV_OVERRIDE:-}" ]; then',
         '        if [ ! -f "${UV_OVERRIDE}" ]; then',
         '            echo "UV_OVERRIDE points to a missing file: ${UV_OVERRIDE}" >&2',
